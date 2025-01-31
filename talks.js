@@ -174,32 +174,55 @@ async function likeComment(commentId, isLiked) {
             }
         );
 
+        // 发送点赞请求
         const response = await fetch(`${serverURL}/api/comment/${commentId}`, {
             method: 'PUT',
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ like: !isLiked })
+            body: JSON.stringify({
+                like: !isLiked
+            })
         });
-        const data = await response.json();
+
+        const result = await response.json();
         
-        if (data.errno === 0) {
-            // 更新本地评论数据
-            const updatedComments = loadedComments.map(comment => {
-                if (comment.objectId === commentId) {
-                    const currentLikes = comment.like || 0;
-                    return {
-                        ...comment,
-                        like: isLiked ? Math.max(0, currentLikes - 1) : currentLikes + 1
-                    };
-                }
-                return comment;
-            });
+        if (result.errno === 0) {
+            // 更新本地存储的点赞状态
+            let likeMap = {};
+            try {
+                likeMap = JSON.parse(localStorage.getItem('waline-like') || '{}');
+            } catch (e) {
+                console.error('解析点赞数据失败:', e);
+            }
             
-            // 更新本地数据并重新渲染
-            loadedComments = updatedComments;
-            const currentPage = Math.ceil(loadedComments.length / pageSize);
-            displayComments(loadedComments, totalComments, currentPage);
+            if (!isLiked) {
+                likeMap[commentId] = true;
+            } else {
+                delete likeMap[commentId];
+            }
+            
+            localStorage.setItem('waline-like', JSON.stringify(likeMap));
+
+            // 重新获取评论列表以更新状态
+            const commentResponse = await fetch(`${serverURL}/api/comment?path=${encodeURIComponent(path)}`);
+            const commentData = await commentResponse.json();
+            
+            if (commentData && (commentData.data || commentData.data.data)) {
+                let comments = Array.isArray(commentData.data) ? commentData.data : commentData.data.data;
+                
+                if (adminOnly) {
+                    comments = comments.filter(comment => comment.type === 'administrator');
+                }
+
+                // 更新本地数据，保留评论的点赞状态
+                allComments = comments;
+                totalComments = comments.length;
+                
+                // 更新显示
+                const currentPage = Math.ceil(loadedComments.length / pageSize);
+                updateDisplayComments(currentPage);
+            }
 
             // 显示成功提示
             VolantisApp.message(
@@ -214,19 +237,11 @@ async function likeComment(commentId, isLiked) {
                 }
             );
         } else {
-            // 操作失败提示
-            VolantisApp.message('操作失败', data.errmsg || '出错了！', {
-                icon: 'fas fa-times-circle',
-                position: 'topRight',
-                backgroundColor: '#ffcccc',
-                titleColor: '#ff4444',
-                messageColor: '#990000'
-            });
+            throw new Error(result.errmsg || '操作失败');
         }
     } catch (error) {
-        console.error('操作失败:', error);
-        // 网络错误提示
-        VolantisApp.message('网络错误', '请稍后重试！', {
+        console.error('点赞操作失败:', error);
+        VolantisApp.message('操作失败', error.message || '请稍后重试', {
             icon: 'fas fa-times-circle',
             position: 'topRight',
             backgroundColor: '#ffcccc',
@@ -289,7 +304,10 @@ function displayComments(comments, total, currentPage) {
 
     // 评论列表
     html += comments.map(comment => {
-        const isLiked = comment.like > 0;
+        // 根据实际点赞数来判断状态，而不是依赖isLiked属性
+        const likeMap = localStorage.getItem('waline-like') ? JSON.parse(localStorage.getItem('waline-like')) : {};
+        const isLiked = !!likeMap[comment.objectId];
+        const likeCount = comment.like || 0;
         const processedContent = processContent(comment.comment || '');
         
         return `
@@ -336,7 +354,7 @@ function displayComments(comments, total, currentPage) {
                     <button class="like-btn ${isLiked ? 'active' : ''}" 
                             onclick="likeComment('${comment.objectId}', ${isLiked})">
                         <i class="${isLiked ? 'fas' : 'far'} fa-heart"></i>
-                        ${comment.like ? comment.like : 0}
+                        ${likeCount}
                     </button>
                 </div>
             </div>

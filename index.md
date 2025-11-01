@@ -11,7 +11,7 @@ sidebar: [blogger, announcement, webinfo]
 // Waline配置
 window.TALKS_CONFIG = {
     // Waline服务设置
-    serverURL: 'https://waline.fuling.me',
+    serverURL: 'https://waline.fuling.cloudns.org',
     path: '/talks/new/',
     pageSize: 3,  // 每页加载数量
     adminOnly: true,  // 添加仅限管理员模式配置
